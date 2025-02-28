@@ -251,3 +251,46 @@
         (ok reward-calculation)
     )
 )
+
+;; Burn an asset token
+(define-public (burn-asset (token-id (buff 32)))
+    (let 
+        (
+            (metadata (unwrap! (map-get? asset-metadata {token-id: token-id}) ERR-NOT-FOUND))
+        )
+        ;; Input validations
+        (asserts! (is-valid-token-id token-id) ERR-INVALID-TOKEN)
+        
+        ;; Verify owner
+        (asserts! (is-eq tx-sender (get owner metadata)) ERR-UNAUTHORIZED)
+        
+        ;; Ensure not staked
+        (asserts! (is-none (get staking-start metadata)) ERR-INVALID-TRANSFER)
+        
+        ;; Burn asset token
+        (try! (nft-burn? satoshi-vault-asset token-id tx-sender))
+        
+        ;; Remove metadata
+        (map-delete asset-metadata {token-id: token-id})
+        
+        (ok true)
+    )
+)
+
+;; Redeem governance tokens
+(define-public (redeem-governance-tokens)
+    (let 
+        (
+            (available-tokens (default-to u0 (map-get? governance-tokens tx-sender)))
+        )
+        ;; Check available tokens
+        (asserts! (> available-tokens u0) ERR-INSUFFICIENT-BALANCE)
+        
+        ;; Reset governance tokens
+        (map-set governance-tokens tx-sender u0)
+        (ok available-tokens)
+    )
+)
+
+;; Contract initialization
+(print "Satoshi Vault: Bitcoin-Backed Digital Asset Platform Deployed")
