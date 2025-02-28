@@ -168,3 +168,86 @@
         (ok true)
     )
 )
+
+;; Stake an asset to earn governance tokens
+(define-public (stake-asset (token-id (buff 32)))
+    (let 
+        (
+            (metadata (unwrap! (map-get? asset-metadata {token-id: token-id}) ERR-NOT-FOUND))
+            (current-block stacks-block-height)
+        )
+        ;; Input validations
+        (asserts! (is-valid-token-id token-id) ERR-INVALID-TOKEN)
+        
+        ;; Verify owner
+        (asserts! (is-eq tx-sender (get owner metadata)) ERR-UNAUTHORIZED)
+        
+        ;; Ensure not already staked
+        (asserts! (is-none (get staking-start metadata)) ERR-STAKING-ERROR)
+        
+        ;; Update asset metadata with staking info
+        (map-set asset-metadata 
+            {token-id: token-id}
+            (merge metadata 
+                {
+                    staking-start: (some current-block)
+                }
+            )
+        )
+        
+        ;; Create staking entry
+        (map-set asset-staking 
+            {token-id: token-id}
+            {
+                staked-by: tx-sender,
+                stake-start-block: current-block,
+                total-staked-blocks: u0
+            }
+        )
+        
+        (ok true)
+    )
+)
+
+;; Unstake an asset and claim rewards
+(define-public (unstake-asset (token-id (buff 32)))
+    (let 
+        (
+            (metadata (unwrap! (map-get? asset-metadata {token-id: token-id}) ERR-NOT-FOUND))
+            (staking-info (unwrap! (map-get? asset-staking {token-id: token-id}) ERR-STAKING-ERROR))
+            (current-block stacks-block-height)
+            (stake-start (get stake-start-block staking-info))
+            (staked-blocks (- current-block stake-start))
+            (reward-calculation 
+                (/ (* (get asset-value metadata) staked-blocks) u10000)
+            )
+        )
+        ;; Input validations
+        (asserts! (is-valid-token-id token-id) ERR-INVALID-TOKEN)
+        
+        ;; Verify staker
+        (asserts! (is-eq tx-sender (get staked-by staking-info)) ERR-UNAUTHORIZED)
+        
+        ;; Update governance tokens
+        (map-set governance-tokens 
+            tx-sender 
+            (+ (default-to u0 (map-get? governance-tokens tx-sender)) reward-calculation)
+        )
+        
+        ;; Reset asset staking metadata
+        (map-set asset-metadata 
+            {token-id: token-id}
+            (merge metadata 
+                {
+                    staking-start: none,
+                    staking-rewards: (+ (get staking-rewards metadata) reward-calculation)
+                }
+            )
+        )
+        
+        ;; Remove staking entry
+        (map-delete asset-staking {token-id: token-id})
+        
+        (ok reward-calculation)
+    )
+)
